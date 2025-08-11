@@ -39,5 +39,5 @@ php client.php
 
 ## Limitations
 
-* We only reply with a resultset (for SELECT) or an OK packet (for other queries). Error packets are not yet implemented. Nuances of the query-specific expected response format are not yet implemented, too.
+* The proxy now returns resultsets, OK packets, or error packets depending on the executed query and responds to simple commands such as PING, QUIT, and INIT_DB.
 * `mysql` CLI client is unable to connect to the proxy server yet

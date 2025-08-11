@@ -79,11 +79,13 @@ class MySQLProtocol {
 	 * 
 	 * @see https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_command_phase.html
 	 */
-	/** Tells the server that the client wants it to close the connection. */
-	const COM_QUIT                    = 0x01;
-	/** Tells the server to execute a query. */
+        /** Tells the server that the client wants it to close the connection. */
+        const COM_QUIT                    = 0x01;
+        /** Change the default schema. */
+        const COM_INIT_DB                = 0x02;
+        /** Tells the server to execute a query. */
     const COM_QUERY                   = 0x03;
-	/** Check if the server is alive. */
+        /** Check if the server is alive. */
     const COM_PING                    = 0x0E;
 	/** Tells the server to send the binlog dump. */
     const COM_BINLOG_DUMP             = 0x12;
@@ -314,6 +316,7 @@ class MySQLGateway {
     private $sequence_id;
     private $authenticated = false;
     private $buffer = '';
+    private $database = '';
 
     public function __construct(MySQLQueryHandler $query_handler) {
         $this->query_handler = $query_handler;
@@ -379,15 +382,30 @@ class MySQLGateway {
         
         // Otherwise, process as a command
         $command = ord($payload[0]);
-        if ($command === MySQLProtocol::COM_QUERY) {
-            $query = substr($payload, 1);
-            return $this->processQuery($query);
-        } else {
-            // Unsupported command
-            $errPacket = MySQLProtocol::buildErrPacket(0x04D2, "HY000", "Unsupported command");
-            return MySQLProtocol::encodeInt24(strlen($errPacket)) . 
-                   MySQLProtocol::encodeInt8(1) . 
-                   $errPacket;
+        switch ($command) {
+            case MySQLProtocol::COM_QUERY:
+                $query = substr($payload, 1);
+                return $this->processQuery($query);
+            case MySQLProtocol::COM_INIT_DB:
+                $schema = substr($payload, 1);
+                $this->database = $schema;
+                $okPacket = MySQLProtocol::buildOkPacket();
+                return MySQLProtocol::encodeInt24(strlen($okPacket)) .
+                       MySQLProtocol::encodeInt8(1) .
+                       $okPacket;
+            case MySQLProtocol::COM_PING:
+            case MySQLProtocol::COM_QUIT:
+                // Respond with a generic OK packet for simple commands like PING/QUIT
+                $okPacket = MySQLProtocol::buildOkPacket();
+                return MySQLProtocol::encodeInt24(strlen($okPacket)) .
+                       MySQLProtocol::encodeInt8(1) .
+                       $okPacket;
+            default:
+                // Unsupported command
+                $errPacket = MySQLProtocol::buildErrPacket(0x04D2, "HY000", "Unsupported command");
+                return MySQLProtocol::encodeInt24(strlen($errPacket)) .
+                       MySQLProtocol::encodeInt8(1) .
+                       $errPacket;
         }
     }
 
@@ -423,10 +441,10 @@ class MySQLGateway {
         try {
             $result = $this->query_handler->handleQuery($query);
             return $result->toPackets();
-        } catch (MySQLServerException $e) {
-            $errPacket = MySQLProtocol::buildErrPacket(0x04A7, "42000", "Syntax error or unsupported query: " . $e->getMessage());
-            return MySQLProtocol::encodeInt24(strlen($errPacket)) . 
-                   MySQLProtocol::encodeInt8(1) . 
+        } catch (\Throwable $e) {
+            $errPacket = MySQLProtocol::buildErrPacket(0x04A7, "HY000", $e->getMessage());
+            return MySQLProtocol::encodeInt24(strlen($errPacket)) .
+                   MySQLProtocol::encodeInt8(1) .
                    $errPacket;
         }
     }
@@ -440,6 +458,7 @@ class MySQLGateway {
         $this->sequence_id = 0;
         $this->authenticated = false;
         $this->buffer = '';
+        $this->database = '';
     }
     
     /**

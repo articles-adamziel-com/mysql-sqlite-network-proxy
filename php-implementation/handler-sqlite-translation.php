@@ -25,20 +25,27 @@ class SQLiteTranslationHandler implements MySQLQueryHandler {
 		$this->wpdb = new WP_SQLite_DB();
 	}
 
-	public function handleQuery(string $query): MySQLServerQueryResult {
-		// An extremely naive check. We should be using the MySQL parser to
-		// determine this:
-		if(!str_starts_with(strtolower($query), 'select')) {
-			$this->wpdb->query($query);
-			return new OkayPacketResult(
-				$this->wpdb->rows_affected ?? 0,
-				$this->wpdb->insert_id ?? 0
-			);
-		}
-		$rows = $this->wpdb->get_results($query, ARRAY_A);
-		$columns = $this->computeColumnInfo($rows);
-		return new SelectQueryResult($columns, $rows);
-	}
+        public function handleQuery(string $query): MySQLServerQueryResult {
+                try {
+                        $result = $this->wpdb->query($query);
+                        if ($result === false) {
+                                return new ErrorQueryResult($this->wpdb->last_error ?: 'Unknown error');
+                        }
+
+                        if (!empty($this->wpdb->last_result)) {
+                                $rows = array_map(fn($row) => (array)$row, $this->wpdb->last_result);
+                                $columns = $this->computeColumnInfo($rows);
+                                return new SelectQueryResult($columns, $rows);
+                        }
+
+                        return new OkayPacketResult(
+                                $this->wpdb->rows_affected ?? 0,
+                                $this->wpdb->insert_id ?? 0
+                        );
+                } catch (\Throwable $e) {
+                        return new ErrorQueryResult($e->getMessage());
+                }
+        }
 
 	public function computeColumnInfo($rows) {
 		if (empty($rows)) {
