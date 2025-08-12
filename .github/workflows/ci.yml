@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: PHP syntax check
+        run: |
+          php -l php-implementation/mysql-server.php
+          php -l php-implementation/handler-pdo.php
+          php -l php-implementation/handler-sqlite-translation.php
+      - name: MySQL CLI test
+        run: sudo bash php-implementation/test-mysql-cli.sh
