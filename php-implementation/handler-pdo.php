@@ -7,20 +7,25 @@ class PDOHandler implements MySQLQueryHandler {
 		$this->pdo = $pdo;
 	}
 
-	public function handleQuery(string $query): MySQLServerQueryResult {
-		// An extremely naive check. We should be using the MySQL parser to
-		// determine this:
-		if(!str_starts_with(strtolower($query), 'select')) {
-			$this->pdo->exec($query);
-			return new OkayPacketResult(
-				$this->pdo->rows_affected ?? 0,
-				$this->pdo->insert_id ?? 0
-			);
-		}
-		$rows = $this->pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
-		$columns = $this->computeColumnInfo($rows);
-		return new SelectQueryResult($columns, $rows);
-	}
+        public function handleQuery(string $query): MySQLServerQueryResult {
+                try {
+                        $stmt = $this->pdo->prepare($query);
+                        $stmt->execute();
+
+                        if ($stmt->columnCount() > 0) {
+                                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                $columns = $this->computeColumnInfo($rows);
+                                return new SelectQueryResult($columns, $rows);
+                        }
+
+                        return new OkayPacketResult(
+                                $stmt->rowCount(),
+                                (int)($this->pdo->lastInsertId() ?: 0)
+                        );
+                } catch (\Throwable $e) {
+                        return new ErrorQueryResult($e->getMessage());
+                }
+        }
 
 	public function computeColumnInfo($rows) {
 		if (empty($rows)) {
